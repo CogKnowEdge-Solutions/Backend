@@ -1,0 +1,23 @@
+FastAPI is a modern web framework for building APIs with
+Python. It is built on top of Starlette and Pydantic, giving you high
+performance and automatic data validation. One of its most powerful
+features is native support for asynchronous programming using async and
+await keywords. This means your endpoints can handle many concurrent
+connections without blocking the server. When a request involves waiting
+like reading a file or calling an external API the server can yield
+control and process other requests. This is fundamentally different from
+synchronous frameworks where each request blocks until completion.
+
+Async programming becomes especially powerful for IO bound tasks.
+Consider a document processing pipeline where you receive an uploaded
+file, split it into chunks, embed each chunk using an AI model, and
+store the results. In a synchronous setup each embedding call blocks
+until the API responds meaning eight chunks would take roughly eight
+times as long as one. With asyncio.gather all eight requests launch
+simultaneously and total wall time approaches that of a single request.
+FastAPI makes this accessible through async def route functions and
+await expressions. Under the hood it runs on ASGI using Uvicorn which
+provides the event loop powering concurrent execution. File uploads use
+the UploadFile class with async read capabilities so even large files
+do not block the server. Combined these features make FastAPI ideal for
+building document processing pipelines and AI-powered applications.
