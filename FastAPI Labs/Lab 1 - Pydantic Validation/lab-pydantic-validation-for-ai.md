@@ -134,7 +134,7 @@ pip install fastapi pydantic httpx
 ### Cell 1: Dependency Installation
 Installs the FastAPI, Pydantic and httpx.
 ```python
-!pip install fastapi pydantic httpx
+!pip install fastapi==0.112.2 pydantic==2.8.2 httpx==0.28.1
 ```
 
 ### Cell 2: Imports

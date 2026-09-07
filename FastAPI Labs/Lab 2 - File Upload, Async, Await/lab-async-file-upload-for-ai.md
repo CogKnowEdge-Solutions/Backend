@@ -1,6 +1,6 @@
 # Lab 2 — Async/Await and File Upload for a Document Q&A Pipeline
 
-Difficulty: Beginner | ~35-40 min
+Difficulty: Intermediate | ~35-40 min
 
 ---
 
@@ -169,6 +169,7 @@ The illustrative numbers above (~4.0s vs ~1.0s) depend on network latency and Go
 - **A free Google AI Studio API key** — get one at https://aistudio.google.com/apikey
 - The key must be set in a `.env` file as `GOOGLE_API_KEY`, or you will be prompted to enter it at runtime (see Section 9)
 - Basic familiarity with Python async/await syntax (helpful but not required — the lab explains it)
+- Basic Familiarity with RAG concepts
 
 ---
 
@@ -184,7 +185,7 @@ python -m venv venv
 .\venv\Scripts\activate
 
 # Install the dependencies
-pip install fastapi pydantic httpx google-genai==1.29.0 python-dotenv python-multipart numpy
+pip install fastapi==0.112.2 pydantic==2.8.2 httpx==0.28.1 google-genai==1.29.0 python-dotenv==1.2.3 python-multipart numpy
 ```
 
 Then create a `.env` file in the same folder as this notebook:

@@ -2,3 +2,5 @@
 venv/
 .venv/
 scripts/
+__pycache__/
+test-results/
