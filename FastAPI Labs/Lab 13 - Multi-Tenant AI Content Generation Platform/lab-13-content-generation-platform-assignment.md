@@ -1,6 +1,4 @@
-# Capstone Assignment — Multi-Tenant AI Content Generation Platform
-
-**Difficulty: Capstone | Architecture-focused exercises**
+# Lab 13 Assignment — Multi-Tenant AI Content Generation Platform
 
 These exercises test your understanding of how the system's pieces connect, not just the syntax of individual features. Attempt every exercise, then check your answers against the key at the end.
 

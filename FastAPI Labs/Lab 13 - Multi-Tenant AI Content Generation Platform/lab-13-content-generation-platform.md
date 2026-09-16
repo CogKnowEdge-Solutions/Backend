@@ -1,12 +1,14 @@
-# Capstone — Multi-Tenant AI Content Generation Platform
+# Lab 13 — Multi-Tenant AI Content Generation Platform
 
-Difficulty: Capstone | ~90 min | Synthesizes Labs 1–12
+Difficulty: Advanced | ~90 min | Synthesizes Labs 1–12
+
+---
 
 ## 1. Overview: What This System Does and Why
 
 A content team at a SaaS company needs to generate blog posts, social media copy, and marketing emails for multiple client accounts (tenants). Each tenant has different preferences — some want professional blog posts, others want casual social media captions. Tenants connect, start a generation, and steer it in real time by sending suggestions while the content is being written.
 
-This capstone builds exactly that system. It is a **multi-tenant, AI-powered content generation platform** where:
+This lab builds exactly that system. It is a **multi-tenant, AI-powered content generation platform** where:
 
 - **Tenants authenticate** via JWT tokens (each token carries a `tenant_id`)
 - **The whole content surface is one WebSocket**: `/content/ws` accepts `generate` messages, runs the pipeline as a concurrent task, and streams every event back on the same socket
