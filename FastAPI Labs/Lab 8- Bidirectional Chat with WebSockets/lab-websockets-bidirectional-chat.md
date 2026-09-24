@@ -153,7 +153,7 @@ The one part of the handler this diagram does not fold into the race is the disc
 
 ## 8. Prerequisites
 
-- **Lab 2 (Async/Await)** — familiarity with `async`/`await`, async generators, and `asyncio` basics is assumed
+- **Lab 4 (Async/Await)** — familiarity with `async`/`await`, async generators, and `asyncio` basics is assumed
 - **Lab 7 (Streaming Responses with SSE)** — the streaming LLM pattern (OpenRouter client, `stream=True`, token forwarding) is reused directly
 - An OpenRouter API key
 

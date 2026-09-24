@@ -161,9 +161,11 @@ In `/chat/blocking`, nothing reaches the client until the entire answer exists. 
 
 ## 8. Prerequisites
 
-- **Lab 2 (Async/Await)** — Familiarity with async generators and `async for` is assumed
+- **Lab 4 (Async/Await)** — Familiarity with async generators and `async for` is assumed
 
 - An OpenRouter API key (set in the `.env` file as `OPEN_ROUTER_KEY`)
+
+- **IDE with Python support** — This lab uses uvicorn to serve the FastAPI app. The ipynb may not run in a cloud hosted IDE like Colab. Use a local IDE like jupyter notebook, VS code, Antigravity etc.
 
 **Compute & cost:** Runs entirely on a laptop CPU — no GPU needed. It calls OpenRouter's `openrouter/free` model, which is free. One full run-through issues roughly 3 LLM calls (a blocking call, a streaming call, and a streaming call with error simulation), so even a paid tier would cost a negligible amount. The streaming error-simulation call is cut off early (2 chunks), so it costs far less than a full generation.
 

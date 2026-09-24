@@ -1,72 +1,96 @@
-# Lab 8 — Bidirectional Chat with WebSockets — Assignment
+# Lab 8 Assignment: Bidirectional Chat with WebSockets
 
-**Complete these exercises from the lab alone. You do not need to re-run the notebook.**
+Complete these hands-on tasks after finishing the lab. You will write the
+changes yourself — the instructions tell you what to build and what result
+to check.
 
----
-
-### Exercise 1 — Why `pending_messages` Uses a `deque` (Concept)
-
-The handler uses `collections.deque` for `pending_messages` rather than a plain Python list. What specific property of `deque` makes it the right choice here, given that messages arrive unpredictably while generation is in progress? Describe the operation that `deque` performs in O(1) time that a list would perform in O(n).
-
----
-
-### Exercise 2 — Tracing the Race Loop (Short Code)
-
-After `asyncio.wait` returns with `done` containing the `recv_task` (meaning a client message arrived first), the code calls `recv_task.result()`. What happens if you call `recv_task.result()` on the `gen_task` instead? Write one sentence explaining the outcome.
+Run the notebook through Cell 6 first so `app`, `test_client`, and the
+`websocket_chat` handler all exist. After you edit the handler or its
+helpers, re-run the edited cells before testing again. Each demo opens a
+fresh connection, and each turn costs one (free-tier) LLM streaming call.
 
 ---
 
-### Exercise 3 — What Happens Without the `try/finally` (Concept)
+### Task 1 — Queuing a Wave of Messages
 
-The `generate()` coroutine wraps the `async for chunk in stream` loop in a `try/finally` that calls `await stream.close()`. If a `stop` message arrives and `gen_task.cancel()` is called, the `async for` loop is interrupted mid-iteration. Without the `try/finally`, what happens to the underlying HTTP connection to OpenRouter? Describe one concrete consequence.
+The lab's Demo 2 queues a single message during generation. Extend that to a
+wave of three:
+
+1. Open a fresh connection and send a message; wait for exactly 2 token
+   events so generation has genuinely started.
+2. Send **three** messages in rapid succession.
+3. Watch the acknowledgments — then keep reading until all three queued
+   turns have been answered.
+
+- **Expected:** each of the three messages gets its own `queued`
+  acknowledgment, in the order you sent them, *before* the current turn's
+  `done` event. After that `done`, the queued turns are processed in order —
+  each produces its own `status`/`token`/`done` sequence, and the third one
+  completes last. The queue is a strict FIFO.
 
 ---
 
-### Exercise 4 — Adding a `ping` Message Type (Short Code)
+### Task 2 — The FIFO With No Popleft
 
-Add a third client-to-server message type: `{"type": "ping"}`. When the server receives a `ping`, it should immediately respond with `{"type": "pong"}` without touching `history` or `pending_messages`, and should not interrupt any in-flight generation. Write the code for handling `ping` inside the outer loop, showing where it fits relative to the `if data["type"] == "message"` and the `gen_task` / `recv_task` logic.
+The lab uses `collections.deque` for `pending_messages`, drained with
+`popleft()`. Swap in the plain-list version:
+
+1. Change the queue to a plain Python list, and use `pop(0)` where the code
+   calls `popleft()`.
+2. Re-run the Task 1 scenario (three messages queued during one
+   generation).
+
+- **Expected:** everything still works exactly the same — three `queued`
+  acknowledgments in order, then all three turns answered in order. The
+  `deque` is a performance choice (O(1) `popleft` vs O(n) `pop(0)`), not a
+  correctness requirement — behavior is unchanged.
 
 ---
 
-### Exercise 5 — Why `asyncio.FIRST_COMPLETED` and Not `asyncio.ALL_COMPLETED` (Concept)
+### Task 3 — Ping-Pong on the Same Channel
 
-Suppose you replaced `return_when=asyncio.FIRST_COMPLETED` with `return_when=asyncio.ALL_COMPLETED`. Describe what the server would do when a `stop` message arrives while generation is still running. Would the generation task be cancelled immediately? Explain why or why not.
+Add a third client-to-server message type, `{"type": "ping"}`, that the
+server answers with `{"type": "pong"}` — without touching `history` or the
+pending queue and without interrupting any in-flight generation. It needs
+handling in **two** places:
+
+1. **Idle case** — in the outer loop, before the `message` handling, for
+   data that came from the fresh `websocket.receive_json()` wait.
+2. **Mid-generation case** — in the race loop's result dispatch: a `ping`
+   arriving through `recv_task` must be answered and a fresh `recv_task`
+   created — it must **not** fall into the branch that queues messages
+   (that branch would treat the ping as a chat turn and answer it later).
+
+Test both:
+
+- Open a connection and send `ping` before any message → **Expected:** an
+  immediate `pong`.
+- Send a message, wait for 2 tokens, then send `ping` → **Expected:** a
+  `pong` arrives while generation keeps producing tokens, **no** `queued`
+  acknowledgment, and the original answer still finishes with `done` (no
+  spurious turn for the ping). The pong and the tokens may interleave in
+  either order — check what appears, not the exact sequence.
 
 ---
 
-## Answer Key
+### Task 4 — Waiting for Everything
 
-### Answer 1
+The race uses `return_when=asyncio.FIRST_COMPLETED` so the server acts on
+whichever of generation or the next client message finishes first. Replace
+it with `return_when=asyncio.ALL_COMPLETED` and re-run **only** the Demo 3
+scenario (send a message, wait for 2 tokens, then send `stop`):
 
-`deque` performs `popleft()` — removing and returning the leftmost element — in O(1) constant time. A Python list performing `pop(0)` must shift every remaining element one position to the left, which is O(n) in the length of the list. Since `pending_messages` could accumulate multiple messages and is drained from the front every time the outer loop iterates, using `deque` avoids repeated linear-time shifts.
+- **Expected:** generation runs to completion and `done` arrives; you never
+  see `cancelled`. The `stop` is received by the receive task but the wait
+  does not return until the generation task finishes on its own, so the
+  stop-handling branch is never reached — the client's request is silently
+  ignored.
 
-### Answer 2
+Two things to keep in mind while testing:
 
-Calling `recv_task.result()` on `gen_task` would return the `None` value that `generate()` implicitly returns (it has no explicit `return` statement), which is meaningless in this context. More critically, if the generation task has *not* finished yet, calling `.result()` on it would raise an `InvalidStateError` — you can only call `.result()` on a task that is already done.
-
-### Answer 3
-
-Without `try/finally`, when `gen_task.cancel()` is raised, the `async for chunk in stream` loop is interrupted but the stream object itself is never closed. The underlying HTTP connection to OpenRouter remains open, holding a socket and associated resources until Python's garbage collector eventually cleans it up (or it times out). In a production server handling many concurrent WebSocket connections, leaked stream connections would accumulate and exhaust file descriptors or memory. The `finally` block guarantees the connection is released the moment the task is cancelled, regardless of how the interruption occurs.
-
-### Answer 4
-
-```python
-if data["type"] == "message":
-    # ... existing generation logic ...
-elif data["type"] == "ping":
-    await websocket.send_json({"type": "pong"})
-```
-
-The `ping` handler sits at the same level as the `message` handler in the outer `while True` loop, before any generation starts. This means it is only checked when the server is waiting for a fresh message (the queue is empty and `websocket.receive_json()` has returned). If a `ping` arrives *during* generation, it will be received by the `recv_task`, evaluated in the race loop, and — since it is neither `stop` nor `message` — would need to be handled there too. To make `ping` work mid-generation, you would add a third branch inside the race loop:
-
-```python
-elif result["type"] == "ping":
-    await websocket.send_json({"type": "pong"})
-    recv_task = asyncio.create_task(websocket.receive_json())
-```
-
-This sends the pong immediately without interrupting generation and creates a fresh receive task to continue listening.
-
-### Answer 5
-
-With `return_when=asyncio.ALL_COMPLETED`, the `await asyncio.wait(...)` call would not return until *both* the generation task and the receive task have finished. When a `stop` message arrives, the receive task completes — but the generation task is still running. The server would continue waiting for the generation task to finish naturally, completely ignoring the user's stop request until generation completes on its own. The `gen_task.cancel()` line would never be reached because the code that calls it (the `result["type"] == "stop"` branch) is only executed after `asyncio.wait` returns, which would be too late. `FIRST_COMPLETED` is essential because the server must be able to act on the *first* thing that happens — whether that is generation finishing or a client message arriving — without waiting for the other.
+- The generation finishes naturally, so give it as long as a full answer
+  takes — nothing is hung, that is the point.
+- Do **not** test this change with the queued-message demo: under
+  `ALL_COMPLETED` the wait blocks until generation ends, the `done` branch
+  fires, and the client never receives the `queued` ack it is waiting for,
+  so that demo would hang.

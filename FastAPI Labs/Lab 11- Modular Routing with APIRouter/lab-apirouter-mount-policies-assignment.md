@@ -1,90 +1,99 @@
-# Assignment: Modular Routing with APIRouter + include_router
+# Lab 11 Assignment: Modular Routing with APIRouter + include_router
 
-This assignment contains 5 exercises designed to test your understanding of `APIRouter`, `include_router()`, mount-time vs. construction-time dependencies, and how the same router can serve different behaviour under different mounts. Complete these exercises without re-running the lab notebook.
+Complete these hands-on tasks after finishing the lab. You will write all the
+changes yourself — the instructions tell you what to build and what result
+to check.
 
----
-
-## Exercises
-
-### Exercise 1: Concept
-
-The `moderation_gate` dependency accepts `payload: MessageIn` — the same Pydantic model as `send_message`. What happens to the dependency and the endpoint if `moderation_gate` declared a different parameter (e.g., `payload: str`) instead? Would the dependency still receive the parsed request body?
-
-### Exercise 2: Code
-
-Write a new dependency `rate_limit_check` that always raises `HTTPException(status_code=429, detail="rate limit exceeded")`. Then write one line of code that mounts the same `router` under prefix `/premium` with this dependency, so that every POST to `/premium/message` is rejected with a 429.
-
-### Exercise 3: Concept
-
-If you changed the router construction to `router = APIRouter(dependencies=[Depends(moderation_gate)])` and then called `app.include_router(router, prefix="/public")` **without** the `dependencies=` argument, what would happen to requests at `/public/message`? Would moderation still apply? Why or why not?
-
-### Exercise 4: Applied
-
-You have the following router and endpoint defined:
-
-```python
-router = APIRouter()
-
-@router.get("/health")
-async def health():
-    return {"ok": True}
-```
-
-You mount it three times:
-
-```python
-app.include_router(router, prefix="/v1")
-app.include_router(router, prefix="/v2")
-app.include_router(router, prefix="/v3")
-```
-
-How many distinct route entries does `app.routes` contain for `/health`? Write a short loop (3 lines max) that counts and prints the total number of routes whose path ends with `/health`.
-
-### Exercise 5: Concept
-
-In Proof 3, the code uses `public_handler is internal_handler` (Python's `is` operator) rather than `public_handler == internal_handler`. Explain why using `==` would be a weaker proof of reuse — what scenario could `==` pass for while `is` would correctly reject?
+Run the notebook through Proof 5 first so the `router`, both mounts, and the
+`test_client` all exist. After you edit a cell, re-run it before sending the
+requests the task describes. Only Task 1 makes a real LLM call; every other
+task is blocked (or fixed) at the routing layer before any model work, so
+they cost nothing.
 
 ---
 
-## Answer Key & Explanations
+### Task 1 — A Third Tenant: The /beta Mount
 
-### Exercise 1 Answer
+The lab proves a router can behave differently under two mounts. Add a third,
+independent one:
 
-- **Answer**: The dependency would **not** receive the parsed request body as a `MessageIn` instance. FastAPI matches dependency parameters by type annotation: because the endpoint declares `payload: MessageIn`, FastAPI parses the body into a `MessageIn` and provides it to any dependency that also declares `payload: MessageIn`. If `moderation_gate` declared `payload: str`, FastAPI would try to resolve `str` as a query or path parameter instead — it would receive a string, not the parsed body, and would not be able to access `payload.message` the way it does now.
+1. Write a dependency of your own, e.g. `length_gate(payload: MessageIn)`
+   that raises `HTTPException(status_code=400, detail="too long")` when
+   `len(payload.message) > 50`.
+2. Mount the same `router` under prefix `/beta` with this dependency
+   attached (`app.include_router(router, prefix="/beta",
+   dependencies=[Depends(length_gate)])`), and re-run the cell.
+3. POST `/beta/message` with a short message (well under 50 characters),
+   then WITH a message over 50 characters.
 
-- **Explanation**: This is the key reason the lab declares the same `MessageIn` type on both the dependency and the endpoint — FastAPI's body-parsing machinery recognises the shared type annotation and passes the same parsed object to both consumers. A different type annotation breaks that link.
+- **Expected:** the short message returns **200** with a real LLM reply; the
+  long message returns **400** with your detail, and the endpoint never
+  runs — the same gate, but only on the `/beta` mount, independent of
+  `/public` and `/internal`.
 
-### Exercise 2 Answer
+---
 
-- **Code**:
-  ```python
-  def rate_limit_check(payload: MessageIn):
-      raise HTTPException(status_code=429, detail="rate limit exceeded")
+### Task 2 — A Second Gate for /premium
 
-  app.include_router(router, prefix="/premium", dependencies=[Depends(rate_limit_check)])
-  ```
-- **Explanation**: The dependency is mounted via the `dependencies=` argument on `include_router()`. Every POST to `/premium/message` will trigger `rate_limit_check` before the endpoint runs, and the 429 will be returned immediately. The endpoint is never entered.
+Add a mount that rejects everything, to show a mount-time dependency can
+stop every request regardless of content:
 
-### Exercise 3 Answer
+1. Write `rate_limit_check` — a simple dependency that unconditionally
+   raises `HTTPException(status_code=429, detail="rate limit exceeded")`.
+2. Mount the router under prefix `/premium` with
+   `dependencies=[Depends(rate_limit_check)]` and re-run the cell.
+3. POST `/premium/message` with an ordinary message body.
 
-- **Answer**: Yes, moderation would still apply to both `/public/message` and `/internal/message`. When dependencies are specified at `APIRouter()` construction time, they apply to every route on that router regardless of how it is later mounted. So even though the `include_router()` call has no `dependencies=` argument, the router-level `moderation_gate` is already attached to the `/message` and `/apirouter_dependency` routes and will run on every request to both mounts.
+- **Expected:** **429** with `{"detail": "rate limit exceeded"}`. The
+  dependency raises before `send_message` is entered, so no LLM call
+  happens and no reply is generated. This is the same mechanism as
+  `moderation_gate` — just with an unconditional condition, which proves
+  the enforcement lives entirely in the mount, not in the endpoint code.
 
-- **Explanation**: This is the core difference between the two placement points. Construction-time dependencies are universal — they follow the router wherever it goes. Mount-time dependencies are specific to one `include_router()` call. In this lab, mount-time placement is chosen deliberately so the router has no default behaviour and each mount can set its own.
+---
 
-### Exercise 4 Answer
+### Task 3 — When the Dependency Loses Its Body
 
-- **Answer**: 3 distinct route entries. Each `include_router()` call registers a fresh copy of every route on the router under the given prefix.
+This lab deliberately declares `payload: MessageIn` in both `moderation_gate`
+and `send_message`, which is what lets FastAPI parse the request body once
+and hand both consumers the same `MessageIn` instance. Break that link:
 
-- **Code**:
-  ```python
-  count = sum(1 for route in app.routes if getattr(route, "path", "").endswith("/health"))
-  print(f"Health routes: {count}")
-  ```
+1. Change `moderation_gate`'s parameter from `payload: MessageIn` to
+   `payload: str` and re-run the cell.
+2. POST `/public/message` with `{"message": "What is FastAPI?"}`.
+3. Put the annotation back to `payload: MessageIn` and re-run the cell so
+   the next task starts from the working lab.
 
-- **Explanation**: The router object is the same Python object in all three calls, but each `include_router()` call creates a new set of route entries on the app. There is one `/v1/health`, one `/v2/health`, and one `/v3/health` — three separate route entries, all backed by the same `health` function.
+- **Expected:** **422** with a validation error whose location is the
+  missing **query** parameter `"payload"` — FastAPI no longer recognises
+  the dependency's parameter as a body field, so it looks for a query
+  string instead and the gate never even inspects the message. With the
+  `MessageIn` annotation restored, `/public/message` again returns **200**
+  for the safe message. The shared type annotation *is* the link between
+  body and dependency.
 
-### Exercise 5 Answer
+---
 
-- **Answer**: `==` compares values — it checks whether two function objects are equal. In Python, two distinct function definitions with identical bodies and names would typically compare as not equal (functions are not value-equal by default), but if two functions happened to share metadata or if someone overrode `__eq__`, `==` could pass without the objects being the same. `is` checks identity: whether both names refer to the **exact same object in memory**, which is the only reliable way to confirm there is truly one function serving both mounts, not two separate definitions.
+### Task 4 — Moderation Baked Into the Router
 
-- **Explanation**: The point of Proof 3 is not just that the two endpoints behave the same, but that they are literally the same piece of code — one function object. `is` is the correct operator for identity checks; `==` is the correct operator for value equality, and is weaker for proving reuse.
+The lab attaches `moderation_gate` at **mount time** so only `/public` is
+gated. Move the gate to **construction time** to see the gate follow the
+router everywhere:
+
+1. Change the router to
+   `router = APIRouter(dependencies=[Depends(api_router_level_dep),
+   Depends(moderation_gate)])`.
+2. Change the public mount to `app.include_router(router, prefix="/public")`
+   — no `dependencies=` argument at all — and re-run both cells.
+3. POST the unsafe message (`"this is unsafe content"`) to
+   `/internal/message`.
+
+- **Expected:** **400** with `{"detail": "blocked by moderation"}` — the
+  same message that previously returned **200** on the internal mount is
+  now rejected there too, because the gate lives in the router object and
+  applies to every mount. Construction-time dependencies are universal and
+  follow the router; mount-time dependencies are per-`include_router()`
+  call. This contrast is the whole point of the lab — the lab deliberately
+  used mount-time placement so the router has no default behaviour and each
+  mount can set its own. Leave the construction-time version in place once
+  you have confirmed the behaviour.

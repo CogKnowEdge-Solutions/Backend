@@ -4,3 +4,4 @@ venv/
 scripts/
 __pycache__/
 test-results/
+.verify/

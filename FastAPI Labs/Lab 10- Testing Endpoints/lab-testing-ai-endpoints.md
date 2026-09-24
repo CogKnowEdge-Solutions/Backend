@@ -130,7 +130,7 @@ Notice the second call only ever fires on the "safe" path — every other branch
 
 ## 8. Prerequisites
 
-- **Lab 4 (Dependency Injection)** — Familiarity with `Depends()` and how FastAPI resolves dependencies is assumed
+- **Lab 3 (Dependency Injection)** — Familiarity with `Depends()` and how FastAPI resolves dependencies is assumed
 - An OpenRouter API key (set in the `.env` file as `OPEN_ROUTER_KEY`)
 
 **Compute & cost:** Runs entirely on a laptop CPU — no GPU needed. Most of the lab uses fake clients (zero cost). The one real LLM call (demonstrating the production classifier) uses OpenRouter's `openrouter/free` model, which is free. A full run-through costs effectively nothing.
@@ -139,14 +139,7 @@ Notice the second call only ever fires on the "safe" path — every other branch
 
 ## 9. Environment / Dependencies Setup
 
-```bash
-pip install fastapi==0.112.2 pydantic==2.8.2 httpx==0.28.1 python-dotenv==1.2.3 openai==3.5.0
-```
-
-Ensure a `.env` file exists in the project root containing:
-```
-OPEN_ROUTER_KEY=your-openrouter-api-key-here
-```
+- This will Lab will run in ipynb format only, unlike prior labs. 
 
 ---
 
@@ -358,7 +351,7 @@ app.dependency_overrides.clear()
 This is the standout case in the whole lab. You cannot reliably coax a real model into producing a specific malformed answer like `"maybe"` on demand to verify your fail-closed logic actually works — but a fake makes this trivial and instant. The classifier returns `"maybe"` (neither "safe" nor "unsafe"), and we assert the message is rejected with `"unrecognized classification"` and the replier was never called.
 
 ```python
-ddef test_malformed_classification_fails_closed():
+def test_malformed_classification_fails_closed():
     fake_replier = make_fake_replier(response="This should never appear")
     fake_classifier = make_fake_classifier(response="maybe")
 

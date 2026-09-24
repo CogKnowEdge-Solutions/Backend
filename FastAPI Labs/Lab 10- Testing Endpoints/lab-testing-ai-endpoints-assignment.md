@@ -1,71 +1,150 @@
-# Lab 10 — Testing Endpoints with dependency_overrides — Assignment
+# Lab 10 Assignment: Testing Endpoints with dependency_overrides
 
-**Complete these exercises from the lab alone. You do not need to re-run the notebook.**
+Complete these hands-on tasks after finishing the lab. You will write the
+changes yourself — the instructions tell you what to build and what result
+to check.
 
----
-
-### Exercise 1 — What `dependency_overrides` Actually Maps (Concept)
-
-In the lab, `app.dependency_overrides[get_classifier_client] = lambda: fake_classifier` overrides the classifier dependency. The key used is the **function object** `get_classifier_client`, not the string `"get_classifier_client"`. What would happen if you accidentally wrote `app.dependency_overrides["get_classifier_client"]` instead (a string key)? Would the override take effect when the endpoint calls `Depends(get_classifier_client)`? Why or why not?
-
----
-
-### Exercise 2 — Why `call_count` Is More Reliable Than Response Shape Alone (Concept)
-
-In `test_unsafe_message_rejected_without_reply_call`, you could in principle verify the replier was not called by checking that `data["reply"]` does not exist in the response. The lab instead asserts `fake_replier.call_count == 0`. Why is the `call_count` assertion strictly more informative? Describe a hypothetical scenario where the response shape looks correct but the replier was actually called (and explain why `call_count` would catch that while a missing `"reply"` key would not).
+Run the notebook through Cell 16 first so the app, both dependencies, the
+fake factories, and all four tests exist. After you edit a function or a
+test, re-run its cell (and the cell that calls it) before checking the
+result. Task 5 must be done last, since it leaves the endpoint without its
+`safe` failure handling. Almost everything in these tasks runs on fake
+clients (zero LLM cost); the only real model call is in Task 2's
+wrong-key run.
 
 ---
 
-### Exercise 3 — Clearing Overrides Between Tests (Concept + Applied)
+### Task 1 — Failing on Purpose
 
-What would happen if you removed the `app.dependency_overrides.clear()` call between `test_safe_message_gets_approved_and_replied` and `test_unsafe_message_rejected_without_reply_call`? Would test 2 still pass? Explain step by step what the override state would be at the start of test 2, and how that affects the endpoint's behavior.
+In `test_unsafe_message_rejected_without_reply_call`, change the assertion
+from `assert data["status"] == "rejected"` to `assert data["status"] ==
+"approved"` — an intentionally wrong expectation.
+
+1. Run the test.
+2. Correct the assertion back to `"rejected"` and run it again.
+
+- **Expected:** the first run stops with an `AssertionError` and never
+  prints `PASSED` — the deliberate mismatch (the endpoint returns the
+  rejected dict, but the test demands `approved`) is caught at the assert
+  line. After the correction the test prints `PASSED`. This is the
+  red/green rhythm a real test suite lives by: the failure tells you the
+  assertion is actually being exercised.
 
 ---
 
-### Exercise 4 — Adding a Fifth Test for Classification "unknown" (Applied)
+### Task 2 — The Override With the Wrong Key
 
-Write a `def test_unknown_classification_rejected():` function that overrides the classifier to return the string `"unknown"` and asserts the response status is `"rejected"` with reason `"unrecognized classification"` and the replier's `call_count` is 0. Do you need to override `get_reply_client` as well, or can you omit that override? Explain why.
+`app.dependency_overrides` is keyed on the **function object**, not the
+function's name. Change the classifier override in test 2 from:
+
+```python
+app.dependency_overrides[get_classifier_client] = lambda: fake_classifier
+```
+
+to:
+
+```python
+app.dependency_overrides["get_classifier_client"] = lambda: fake_classifier
+```
+
+1. Run test 2 with the string key.
+2. After the run, check `fake_classifier.call_count`.
+3. Correct the key back to the function object and run test 2 again.
+
+- **Expected:** with the string key the override silently does nothing —
+  FastAPI resolves `Depends(get_classifier_client)` by looking up the
+  function object, finds no entry, and falls back to the real classifier.
+  The proof: `fake_classifier.call_count` is `0` (the fake was never
+  invoked; the real model was called instead). The test's own pass/fail is
+  now up to whatever the real model outputs, so don't rely on it — the call
+  count is the decisive check. With the function-object key restored, the
+  override takes effect, `call_count` is `1`, and the test prints `PASSED`
+  deterministically against the fake.
 
 ---
 
-### Exercise 5 — What Happens Without the `try/except` in the Endpoint (Concept)
+### Task 3 — The Override That Must Hand Back a Callable
 
-The endpoint wraps `classifier(req.message)` in a `try/except` that returns `{"status": "error", "detail": ...}`. If you removed this `try/except` block and `test_classifier_failure_returns_clean_error` ran, what would `response.status_code` be instead of 200? What would `response.json()` return? Why does the absence of error handling cause a fundamentally different failure mode than a structured error response?
+The override does not replace the classifier *value* — it is a dependency
+callable that FastAPI **invokes with no arguments**, and whatever that
+callable returns is what the endpoint receives as `classifier`. The
+`lambda` is what makes it a callable that hands back the fake function. Try
+storing something that is not a properly wrapped callable. Use test 1 for
+each variation, starting from the working override:
+
+1. **Bare function.** Store
+   `app.dependency_overrides[get_classifier_client] = fake_classifier`
+   (no `lambda`). FastAPI calls it with no arguments, but the function
+   requires `message` → it throws during dependency resolution.
+2. **Its return value.** Store
+   `app.dependency_overrides[get_classifier_client] =
+   fake_classifier("safe")` — evaluating the async function immediately
+   produces a coroutine object (its body never runs), and a coroutine is
+   not callable.
+3. **Correct form.** Restore `lambda: fake_classifier` and run test 1 again.
+
+- **Expected for step 1:** `response.status_code == 500` with the default
+  `{"detail": "Internal Server Error"}` body — the `TypeError` fires inside
+  FastAPI's dependency solver, before any endpoint logic. `fake_classifier.
+  call_count` is `0`: the exception happens at argument binding, so the
+  function body never executes.
+- **Expected for step 2:** again `500` — the stored coroutine cannot be
+  called as a dependency, so resolution fails the same way.
+- **Expected for step 3:** `200`, status `approved`, and
+  `fake_replier.call_count == 1`. The pattern to take away: the override
+  must be *callable itself* (dependency-shaped), and what it *yields* must
+  be the callable classifier — neither the bare function nor its return
+  value satisfies both.
 
 ---
 
-## Answer Key
+### Task 4 — A Fifth Test for "unknown"
 
-### Answer 1
-
-The override would not take effect. `app.dependency_overrides` is a dictionary keyed on the **function object itself** — Python treats `get_classifier_client` (the function) and `"get_classifier_client"` (the string) as completely different dictionary keys. When FastAPI resolves `Depends(get_classifier_client)`, it looks up the function object in the overrides dict, finds nothing (because only a string was stored), and falls back to the real dependency function. The test would silently pass against the production implementation instead of the fake, giving a false sense of correctness.
-
-### Answer 2
-
-A `call_count` assertion proves the code path was actually taken, while a missing `"reply"` key only proves the final output shape. Consider a hypothetical bug where `replier(req.message)` is called but its return value is accidentally discarded (e.g., assigned to a local variable but not included in the response dict). The response would have no `"reply"` key — so a shape-based assertion would pass — but the replier was actually called and spent real money (or time) on an LLM call it should have skipped. `call_count == 0` catches this because it directly measures invocation, not output.
-
-### Answer 3
-
-Without `app.dependency_overrides.clear()`, test 2 would inherit both overrides from test 1: the classifier would still be overridden to return `"safe"` (from test 1's override) and the replier would be overridden to return `"Hello! How can I help you today?"` (from test 1's fake_replier). When test 2 sets its own classifier override to `"unsafe"`, that replaces the classifier override, but the replier override from test 1 persists if test 2 does not set its own replier override. However, in the lab's code, test 2 does set its own replier override, so both overrides get replaced. The test would technically still pass — but only because test 2 explicitly overrides both dependencies. The real danger is in tests that omit one override (like test 4, which only overrides the classifier) — without `clear()`, a stale replier override from an earlier test would be in effect, potentially masking bugs.
-
-### Answer 4
-
-You do **not** need to override `get_reply_client` for this test. The endpoint's branching logic rejects the message before it reaches the replier call when classification is not `"safe"` — so the replier dependency is never resolved, and its override is irrelevant. This is the same principle demonstrated in test 2: the replier override exists as a safety net (to prove `call_count == 0`), but the endpoint's logic guarantees the replier is never called regardless. The test function would look like:
+The four tests cover `"safe"`, `"unsafe"`, a malformed value, and a raised
+exception. Write a fifth test for a *plausible* never-seen case:
 
 ```python
 def test_unknown_classification_rejected():
     fake_replier = make_fake_replier(response="This should never appear")
-    app.dependency_overrides[get_classifier_client] = lambda: make_fake_classifier(response="unknown")
+    fake_classifier = make_fake_classifier(response="unknown")
+    app.dependency_overrides[get_classifier_client] = lambda: fake_classifier
     app.dependency_overrides[get_reply_client] = lambda: fake_replier
-
     response = test_client.post("/submit", json={"message": "Some message"})
     data = response.json()
-
-    assert data["status"] == "rejected"
-    assert data["reason"] == "unrecognized classification"
-    assert fake_replier.call_count == 0
+    ...
 ```
 
-### Answer 5
+1. Write the function, asserting `data["status"] == "rejected"`,
+   `data["reason"] == "unrecognized classification"`, and
+   `fake_replier.call_count == 0`.
+2. Run it, then `app.dependency_overrides.clear()` afterwards — same as the
+   other test cells.
 
-Without the `try/except`, when `make_fake_classifier(raise_error=True)` raises `RuntimeError("Classifier service unavailable")`, the exception would propagate up through FastAPI's request handling and produce an **HTTP 500 Internal Server Error**. `response.status_code` would be `500`, and `response.json()` would return a FastAPI default error body (something like `{"detail": "Internal Server Error"}`) — not the structured `{"status": "error", "detail": "Classifier service unavailable"}` the endpoint is designed to return. The fundamental difference: a 500 error tells the client "the server broke," while the structured error tells the client "this specific upstream service failed, here is exactly what happened." The `try/except` converts an unpredictable crash into a predictable, documented failure mode that clients can handle programmatically.
+- **Expected:** `PASSED`. The endpoint answers `"unknown"` the same way as
+  `"maybe"` — anything that is not exactly `"safe"` fails closed before the
+  replier is ever reached, so the replier's `call_count` stays `0`. You
+  include the replier override as a safety net that proves that skip;
+  without it the test would still pass, because the rejected path never
+  resolves the replier dependency.
+
+---
+
+### Task 5 — Removing the Safety Net
+
+The endpoint's `try/except` converts an upstream failure into a structured
+`{"status": "error", "detail": ...}` response. Remove it so the endpoint
+just calls the classifier directly (no `try`, no `except`), keeping the
+rest of the body unchanged.
+
+1. Edit the endpoint cell and re-run it.
+2. Run test 4 (`test_classifier_failure_returns_clean_error`), and print
+   `response.status_code` and `response.json()` after the call.
+
+- **Expected:** the raised `RuntimeError("Classifier service unavailable")`
+  is no longer caught. FastAPI's server-error middleware turns it into an
+  HTTP `500` with the generic body `{"detail": "Internal Server Error"}`.
+  The test's assertions now fail — there is no `"status": "error"` contract
+  anymore. The difference is the whole point of the `try/except`: a `500`
+  tells the client "the server broke," while the structured response tells
+  it "this specific upstream service failed, here is exactly what happened."
+  Leave the endpoint as-is once the behavior is confirmed.

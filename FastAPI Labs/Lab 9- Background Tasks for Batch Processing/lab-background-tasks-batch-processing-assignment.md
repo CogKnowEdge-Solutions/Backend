@@ -1,57 +1,93 @@
-# Lab 9 — Background Tasks for Batch AI Processing — Assignment
+# Lab 9 Assignment: Background Tasks for Batch Processing
 
-**Complete these exercises from the lab alone. You do not need to re-run the notebook.**
+Complete these hands-on tasks after finishing the lab. You will write all the
+changes yourself — the instructions tell you what to build and what result
+to check.
 
----
-
-### Exercise 1 — What the Client Sees Before Any Work Starts (Concept)
-
-After calling `POST /tasks/summarize-batch` with a list of 5 reviews, the client receives a response with `status: pending`. At the exact moment this response is constructed and returned to the client, has the background function `run_batch_summary` started executing? Has it set `status` to `running` yet? Explain why or why not, referring to how `BackgroundTasks` schedules work.
-
----
-
-### Exercise 2 — Why `job_store` Must Be Module-Level (Concept)
-
-The lab defines `job_store` as a module-level variable rather than creating it inside the POST endpoint function. If `job_store` were a local variable inside `summarize_batch`, what would happen when `run_batch_summary` tries to update `job_store[job_id]["completed"] += 1`? Would this work? Why or why not?
+Run the notebook through your last demo first so `job_store`,
+`run_batch_summary`, both endpoints, and the running server all exist. After
+you edit a cell or add a new endpoint, re-run it before testing. Each task's
+batch submits its own jobs; each review costs one (free-tier) LLM streaming
+call, so a full pass of these tasks issues roughly 12–14 calls.
 
 ---
 
-### Exercise 3 — Mid-Run Poll Behavior (Concept)
+### Task 1 — Purging a Job From the Store
 
-Suppose a batch of 4 reviews is being processed. The background task uses `job_store[job_id]["completed"] += 1` after each review is summarized. If a client polls the GET endpoint after the second review has finished but before the third starts, what value of `completed` will it see? What about `status`? Now suppose the `completed += 1` line were moved outside the loop to after it finishes entirely — how would the poll behavior change?
+The lab's GET endpoint knows a job is gone from the "not found" fallback, but
+nothing ever removes a job. Add `DELETE /tasks/{job_id}`:
+
+1. Define the endpoint so it removes the job from `job_store` and returns a
+   confirmation (e.g., `{"deleted": job_id}` or the removed job's state).
+2. Submit a fresh batch, poll it until `done`, then DELETE it.
+3. GET the same job ID afterwards.
+
+- **Expected:** the DELETE returns a confirmation, and the following GET on
+  that ID returns the same `{"error": ...}` "not found" message the lab
+  returns for an ID that never existed. From the client's view, a deleted job
+  and a never-existent job look identical — the GET's default-value lookup
+  has nothing to fetch.
 
 ---
 
-### Exercise 4 — What Happens Without Error Handling (Concept)
+### Task 2 — The Disappearing Partial Progress
 
-The `run_batch_summary` function wraps its loop in a try/except block. If this try/except were removed and the `simulate_failure` exception were raised instead, what would happen to the job's status in `job_store`? Would it remain `running` forever, become `done`, or something else? What would a client see if it polled the GET endpoint after this failure?
+The lab places `job_store[job_id]["completed"] += 1` (and the results
+append) inside the loop so mid-run polls show real progress. Move them out:
+
+1. Take both lines out of the loop and run them **after** it instead, right
+   before the status is set to `done`.
+2. Submit a **batch of five** reviews and poll every second or two, printing
+   `status` and `completed` each time, until the job is `done`.
+
+- **Expected:** every poll that catches the job `running` shows
+  `completed: 0` — there is no partial count and no partial results. The
+  progress jumps straight to `5` only together with `status: done`. Exactly
+  how many polls land mid-run depends on timing (a bigger batch widens the
+  window), but during the run the numbers never climb by ones the way the
+  lab's Demo 2 does.
 
 ---
 
-### Exercise 5 — Comparing Background Tasks to Streaming (Applied)
+### Task 3 — Two Flavors of One Endpoint
 
-Lab 7 used `StreamingResponse` to send each chunk of an LLM response to the client as it was produced. Lab 9 uses `BackgroundTasks` to return a response before any LLM work happens. For a batch of 10 reviews that each take 3 seconds to summarize (30 seconds total), which approach is more appropriate and why? What problem would you encounter if you tried to use `StreamingResponse` for this batch scenario instead of `BackgroundTasks`?
+The timing demo proves the background POST returns in milliseconds — but what
+would it cost to skip `BackgroundTasks` and just do the work inline? Define a
+twin endpoint (e.g., `POST /tasks/summarize-batch-sync`) with the same
+`BatchRequest` body, but instead of scheduling a task, run the exact same
+summarize loop, `await`ing each call, and return the finished job state
+directly (`status: done`, full `results`).
+
+1. Add the endpoint; re-run its cell.
+2. Time one POST to the **synchronous** twin and one POST to the original
+   background endpoint, using `time.perf_counter()` around each, with the
+   same three-review batch. Print both elapsed times and both response
+   statuses.
+
+- **Expected:** the background POST returns in a few milliseconds with
+  `status: pending` (no summary work has happened yet — the old "timing
+  proof" observation). The synchronous twin takes as long as the whole batch
+  of LLM calls — several seconds — and its response already contains
+  `status: done` and the full results, because the client could not get its
+  answer until every review was summarized. The milliseconds-versus-seconds
+  gap is what `BackgroundTasks` buys you, and it only grows with batch size.
 
 ---
 
-## Answer Key
+### Task 4 — The Runaway That Never Finishes
 
-### Answer 1
+The lab's `try/except` is what converts a failure into a clean `failed`
+state. Remove the whole `try/except` from `run_batch_summary` (un-indenting
+the loop) and submit a `simulate_failure=True` batch:
 
-No. At the moment the POST response is constructed and returned, `run_batch_summary` has not started executing at all. The response is built and sent to the client first — `background_tasks.add_task(...)` merely schedules the function to run later. FastAPI sends the response, then runs the background function. That is why `status` is still `pending` in the response: the background function that would set it to `running` has not yet begun.
+1. Remove the exception handling; re-run the cell.
+2. Submit a three-review batch with `simulate_failure=True` and poll until
+   you see the job can no longer change (the first review will still be
+   summarized before the simulated failure on the second).
 
-### Answer 2
-
-It would not work. `job_store` would be a local variable inside `summarize_batch`, created fresh each time the endpoint is called. The background function `run_batch_summary` runs in a separate context after the endpoint returns — it has no access to local variables from the endpoint. The background function would raise a `NameError` because `job_store` is not defined in its scope. A module-level variable is visible to all code in the file, which is why both the endpoint and the background function can read and write to it.
-
-### Answer 3
-
-The client would see `completed: 2` and `status: running` — the second review has finished and its result has been appended, but the third has not started yet. If `completed += 1` were moved outside the loop, the client would see `completed: 0` and `status: running` during the entire run (until the loop finished), then suddenly `completed: 4` and `status: done` on the next poll. Mid-run polls would show no progress at all, defeating the purpose of per-item updates.
-
-### Answer 4
-
-The exception would propagate up through the background task runner and the job's status would remain `running` forever — there would be no code path that sets it to `failed`. A client polling the GET endpoint would see the job stuck in `running` with `completed` stuck at whatever count it reached before the failure (in the case of `simulate_failure`, that would be `completed: 1`). The job would never transition to `done` or `failed`, so the client would have no way to know something went wrong. The try/except block explicitly catches the exception and sets the status to `failed` with a clear error message.
-
-### Answer 5
-
-`BackgroundTasks` is the appropriate choice. With `StreamingResponse`, the client must hold an HTTP connection open for the entire duration of the work — 30 seconds in this case. If the client disconnects, the work stops or becomes invisible. `BackgroundTasks` lets the client send the request, receive a job ID in milliseconds, and disconnect immediately. It can poll whenever it wants without holding any connection open. Additionally, `StreamingResponse` is designed for sending incremental output from a single generation — it does not naturally model "process N items sequentially and report progress after each one" the way a background task with a shared state dictionary does.
+- **Expected:** the exception kills the background task; nothing ever sets
+  the status again. The job stays `running` forever with `completed` frozen
+  at `1` and no `error` field. FastAPI logs the failed background task to the
+  server console, but the server itself keeps running. This is exactly the
+  state the lab's `try/except` prevents — compare it with Demo 4's clean
+  `failed` result from earlier.

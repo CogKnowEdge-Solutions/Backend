@@ -151,7 +151,7 @@ The diagram contrasts the lifespan path with the naive alternative: in the naive
 
 ## 8. Prerequisites
 
-- Lab 4 (Dependency Injection) — familiarity with `Depends()` and how FastAPI resolves dependencies.
+- Lab 3 (Dependency Injection) — familiarity with `Depends()` and how FastAPI resolves dependencies.
 - No API keys or external services are required for this lab.
 
 ---

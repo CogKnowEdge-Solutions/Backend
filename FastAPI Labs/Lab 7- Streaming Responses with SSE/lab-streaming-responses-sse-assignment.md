@@ -1,95 +1,98 @@
-# Lab 7 — Streaming Responses with SSE — Assignment
+# Lab 7 Assignment: Streaming Responses with SSE for AI Chat
 
-**Complete these exercises from the lab alone. You do not need to re-run the notebook.**
+Complete these hands-on tasks after finishing the lab. You will write the
+changes yourself — the instructions tell you what to build and what result
+to check.
 
----
-
-### Exercise 1 — Parsing an SSE Stream (Concept)
-
-Given the following raw SSE text that a client receives from `/chat/stream`, write down which lines are `event: token` events and what text each one carries. Then state what happens after the final `event: done` line.
-
-```
-event: token
-data: The
-
-event: token
-data:  capital
-
-event: token
-data:  of
-
-event: token
-data:  France
-
-event: token
-data:  is
-
-event: token
-data:  Paris
-
-event: done
-data: [DONE]
-```
+Run the notebook through Cell 5 first so `app`, `http_client`, and
+`stream_tokens` all exist and the server is running on `PORT`. After you
+edit the generator or an endpoint, re-run those cells before testing again.
+The tasks make real (free-tier) OpenRouter calls, so each demo run costs a
+handleful of small generations.
 
 ---
 
-### Exercise 2 — Why `if delta.content:` Is Necessary (Concept)
+### Task 1 — Twisting the Interruption Threshold
 
-OpenRouter's streaming API occasionally sends chunks where `chunk.choices[0].delta.content` is `None` or an empty string — these are keep-alive comments or metadata chunks, not real text output. If the `stream_tokens` generator skipped the `if delta.content:` check and yielded these chunks as `event: token` data, what problem would the client experience? Describe one specific consequence.
+The lab's generator stops a simulated failure with
+`simulate_error and event_count >= 2`: after two content chunks it yields
+`event: error` and returns. Change that number and re-run Demo 4's client
+loop (`simulate_error=True`) after each edit, watching how many
+`event: token` lines appear before `event: error`:
 
----
-
-### Exercise 3 — Adding a Word-Count Event (Short Code)
-
-Modify the `stream_tokens` generator so that, right before the final `event: done\ndata: [DONE]\n\n`, it yields one additional SSE event: `event: wordcount\ndata: <total number of output chunks yielded>\n\n`. Write only the changed lines of the generator (not the entire function). What must change in the generator to track the count?
-
----
-
-### Exercise 4 — Error Handling Location (Concept)
-
-Suppose you moved the `simulate_error` logic out of the generator and into the endpoint itself, wrapping it in a `try/except` block — catching an exception from the generator and returning a JSON error response. Why would this approach fail once the stream has already started sending chunks? Describe exactly what the client would see.
-
----
-
-### Exercise 5 — Why `stream()` Matters (Applied)
-
-A developer replaces the `http_client.stream()` call in Demo 2 with `http_client.post()`, reasoning that both send the same request to the same server. They then measure `time.perf_counter()` before and after the call. Would the measured "time to first output" be smaller, larger, or the same as the original streaming measurement? Explain what `http_client.post()` does with the response body that `http_client.stream()` does not, and why this matters for timing.
+- **Threshold `0`:** the error fires on the very first content chunk.
+  - **Expected:** zero `event: token` lines before `event: error`.
+- **Threshold `999`:** the error branch is never reached.
+  - **Expected:** the stream runs to completion and ends with `event: done`
+    instead — the error only fires when the stream is still producing chunks
+    past the threshold.
+- **Threshold `5`:** either outcome is valid — if the model emits at least 5
+  chunks you see 5 tokens then the error; if `openrouter/free` delivers
+  fewer, larger chunks the loop ends first and you see `event: done`. Observe
+  whichever happens; both confirm how the interruption condition interacts
+  with the number of chunks the provider actually sends.
 
 ---
 
-## Answer Key
+### Task 2 — Counting the Words as They Stream
 
-### Answer 1
+The generator already tracks how many `event: token` events it has sent in
+`event_count` (incremented each time a content chunk is yielded). Add one
+more SSE event that reports that total before the stream closes:
 
-The `event: token` events carry the following text:
-- "The"
-- " capital"
-- " of"
-- " France"
-- " is"
-- " Paris"
+1. Yield `event: wordcount` with `data:` carrying `event_count`.
+2. Place it **after** the chunk loop finishes (so the count is final) and
+   **before** the `event: done` yield, so `done` stays the last event the
+   client receives.
 
-That is 6 token events, each yielding a single word (some with a leading space). After the `event: done` line with `data: [DONE]`, the generator has finished and the connection closes — no further events are sent.
+Consume a normal stream (`simulate_error=False`) and check the event
+sequence:
 
-### Answer 2
+- **Expected:** the `wordcount` event arrives as the second-to-last event,
+  and its value equals the number of `event: token` lines you received
+  (the empty-delta chunks are already skipped by the existing
+  `if delta.content:` guard, so the count tracks real text only).
 
-The client would receive `event: token` events with empty or `None` data values. If the client concatenates all token data to display the response, it would accumulate meaningless empty strings in the output — potentially inserting blank lines, extra spaces, or corrupted formatting into the displayed text. More seriously, some SSE parsers may raise an error or behave unpredictably when `data:` is empty, because the SSE specification expects `data:` to carry actual content for a `token` event.
+---
 
-### Answer 3
+### Task 3 — Why `.stream()` Not `.post()`
 
-No new counter is needed — the generator already tracks the count with `event_count`, which increments once per yielded chunk inside `if delta.content:`. The only change is to yield the new event just before the `done` sentinel:
+Demo 2 measures "time to first output" using `http_client.stream()`. Run a
+controlled comparison to see what the alternative does:
 
-```python
-    yield "event: wordcount\ndata: {event_count}\n\n"
-    yield "event: done\ndata: [DONE]\n\n"
-```
+1. Time a call to `/chat/stream` using `http_client.post()` instead
+   (`start = time.perf_counter()` just before, stop once it returns).
+2. Run the same prompt through `http_client.stream()` (or reuse Demo 2's
+   recorded first-output time).
 
-The key point is placement: the `wordcount` event must be yielded *after* the `async for` loop ends (so the count is final) but *before* `event: done` (so the `done` sentinel stays the last event the client receives, which is the contract a client relies on to close the stream).
+- **Expected:** the `post()` elapsed time is close to the stream's *full*
+  completion time, not its first-output time — noticeably larger than the
+  `.stream()` first-output measurement. A plain `post()` reads the entire
+  response body into memory before returning, so your code cannot see the
+  first line until every chunk (including `event: done`) has arrived;
+  `.stream()` exposes each chunk as it arrives, which is the only way to
+  time the first output honestly.
 
-### Answer 4
+---
 
-Once `StreamingResponse` starts streaming, the HTTP response headers — including a 200 status code — have already been sent to the client. A `try/except` around the endpoint that tries to return a different response (e.g., a JSON error body with a 400 or 500 status code) would fail because the response is already committed. The client would see the partial stream of chunks followed by either a hanging connection (if the exception is caught silently) or an HTTP error mid-stream (if the exception propagates), neither of which is a clean error signal. The only correct approach is to yield an error event *inside the generator* and end the generator, which closes the connection gracefully.
+### Task 4 — The Too-Late Try/Except: Raising Mid-Stream
 
-### Answer 5
+One common instinct is to "just catch the error and return a 500 JSON
+response". This task shows why that cannot work once streaming has begun.
 
-The measured time would be **significantly larger** — in fact, it would be approximately equal to the full completion time, not the streaming first-output time. `http_client.post()` reads the entire response body into memory before returning, which means it waits for the complete stream to finish (every chunk plus the `done` event). Only then does the response become available. `http_client.stream()` yields the response incrementally, allowing `iter_lines()` to process each line as it arrives — which is the only way to capture the time at which the *first* output was received, not the time at which the *last* chunk finished. Using `post()` for the streaming measurement would produce a result indistinguishable from the blocking measurement, completely defeating the purpose of the comparison.
+In `stream_tokens`, the simulated-failure branch currently yields a clean
+`event: error` then returns. Instead, remove that yield/return and let the
+generator fail with a bare `raise RuntimeError("Stream broke")`, leaving
+everything else the same. Re-run Demo 4's client loop
+(`simulate_error=True`):
+
+- **Expected:** the stream stops abruptly. You never receive an
+  `event: error` line, and no `event: done` follows — the client loop
+  simply ends early, or a client-side exception surfaces. There is no
+  structured error body at all.
+
+The reason is timing: by the time a chunk has been sent, the HTTP status
+code and headers (including `200`) are already committed to the client.
+Nothing can retroactively swap them for a 500. A failure that happens after
+streaming starts can only travel *inside the stream* as an SSE event —
+exactly what the clean `event: error` yield in the working version does.

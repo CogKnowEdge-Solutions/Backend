@@ -1,0 +1,401 @@
+================================================================================
+GUIDELINE: GENERATING ACCURATE LAB HTML FILES
+================================================================================
+Target audience: AI agents asked to produce an HTML lab document.
+Task: Convert a markdown (.md) file (pointed to by the user in the prompt) into a
+single self-contained HTML file that follows the reference file exactly. Do not delete the md file, leave it as is. Only generate the HTML eqvivalent. 
+
+--------------------------------------------------------------------------------
+1. THE REFERENCE FILE (READ IT FIRST, IN FULL)
+--------------------------------------------------------------------------------
+Use this corrected file as the only structural reference:
+
+    lab-1-pydantic-validation-for-ai.html
+
+Open it and study it before doing anything else. Your output must match its
+document skeleton, styling and "chrome" (header, footer, diagrams) while only
+the body CONTENT changes. The user points you to a specific .md file; all body
+content comes from that .md file and nowhere else.
+
+Reference skeleton (locate by STRUCTURE, not line number - the numbers shift as
+editors and converters touch the file):
+
+    top      <!DOCTYPE html> / <html lang="en"> / <head> / <meta charset="UTF-8">
+    head     <title>  (one line, matches the document title)
+    head     <style>  (shared CSS - copy verbatim)
+    body     <body>
+    header   REUSABLE DOCUMENT HEADER comment + logo bar:
+             <p> <img src="data:image/png;base64,..." alt="Cogknowedge Solutions
+             logo"> + company-name <span>. NO subtitle line under it.
+    h1       document title (reserved: one h1 per document)
+    body     main sections as h2, subsections as h3
+    diagrams <div class="diagram"><img alt="diagram N" .../></div>
+    footer   REUSABLE DOCUMENT FOOTER comment + copyright <p> block
+
+--------------------------------------------------------------------------------
+2. NON-NEGOTIABLE OUTPUT CONVENTIONS
+--------------------------------------------------------------------------------
+a) SELF-CONTAINED SINGLE FILE
+   - Every asset is INLINE: base64 images, CSS in <style>. NO external files,
+     NO CDN links, NO <link rel="stylesheet">, NO <script src="...">, NO
+     references to a .png/.jpg/.svg file on disk.
+   - Always include <meta charset="UTF-8"> and write the file as UTF-8.
+
+a2) CODE HIGHLIGHTING - INLINE <b>/<i> TOKENS, NO EXTERNAL LIBRARY (see 2a).
+    Code blocks are rendered as self-contained "terminal window" divs built
+    ONLY from inline-styled <div>/<b>/<i> elements. There is NO external
+    JavaScript, CSS, CDN, <link> or <script> - highlighting is plain HTML, so
+    it works in the browser AND survives Word/PDF/email export unchanged AND
+    survives paste into LMS rich-text editors.
+    - Reference implementation to copy verbatim (structure AND styles):
+        lab-1-pydantic-validation-for-ai.html
+    - One window per code sample. Wrapper markup is exactly (title bar + body;
+      the body holds ONE <div> per code line):
+        <div style="margin:18px 0;border-radius:8px;overflow:hidden;border:1px solid #2d3139;box-shadow:0 1px 3px rgba(0,0,0,0.12);">
+          <div style="background:#21252b;padding:6px 14px;border-radius:8px 8px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;color:#9aa0ab;text-transform:uppercase;letter-spacing:0.06em;">LABEL</div>
+          <div style="background:#282c34;padding:14px 18px;border-radius:0 0 8px 8px;">
+            <div style="margin:0;padding:0;border:0;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:13px;line-height:1.55;color:#dcdfe4;">LINE 1 (indentation + tokens)</div>
+            <div style="...same LINE style...;">LINE 2</div>
+            <div style="...same LINE style...;">... one div per line ...</div>
+          </div>
+        </div>
+    - LABEL (title bar, uppercase): the block's language - bash, powershell,
+      python, yaml, docker. Unclassified output keeps a descriptive label:
+      output (scrape results, JSON, compose logs), text (folder trees),
+      requirements (requirements.txt), promql (PromQL queries). Do not invent
+      other labels.
+    - TOKENS (inside each line div): the source text is HTML-escaped first,
+      then each matched token is wrapped in an inline tag - <b> for
+      keywords/commands/strings/numbers/functions, <i> for comments. NEVER
+      use <span> for tokens - see failure point F7. Palette:
+        keywords/commands  <b style="color:#c678dd;">   (cli/docker commands,
+                                             python keywords, yaml keys)
+        strings            <b style="color:#98c379;">
+        numbers            <b style="color:#d19a66;">
+        functions          <b style="color:#61afef;">   (python identifiers
+                                             before '(')
+        comments           <i style="color:#7f848e;font-style:italic;">
+                                             (from '#' to end of line; also
+                                             style a whole comment-only line
+                                             div with the same color/italic)
+        default text       #dcdfe4 (the line div's body color; left untagged)
+    - WHITESPACE RULES (critical - the LMS editor collapses space runs):
+      - Each code line = EXACTLY ONE <div> (same inline style), so one editor
+        element = one code line; tokens inside it stay together.
+      - Leading indentation of each line: preserve the source's leading
+        whitespace run EXACTLY (one '&nbsp;' per char; tabs as four '&nbsp;').
+        Split it off BEFORE tokenizing so it is NEVER wrapped inside a
+        <b>/<i> token tag - a colour tag that begins with spaces can itself be
+        collapsed or dropped by the LMS editor. Do not trim or normalize the
+        leading whitespace, and never start a token's text with spaces.
+      - Interior runs of 2+ consecutive spaces (alignment): emit '&nbsp;'
+        outside any token tag.
+      - Single interior spaces between tokens: emit a normal space so long
+        lines can still wrap in a narrow column.
+      - Blank code lines: emit the line div containing a single '&nbsp;'.
+      - Escape with html.escape() BEFORE adding token tags so "<", ">", "&"
+        render correctly; do not escape over tags you generate.
+    - Per-language tokenizing (line-based, keep it simple):
+      bash        first word of each line = keyword (command); double/single-
+                  quoted strings = string; '#'-to-end = comment
+      powershell  same as bash; a leading number range (e.g. "1..20") = number
+      python      comment / string / number / keyword / identifier-before-'('
+      yaml        the key (text before ':') = keyword, anchored to line start;
+                  double-quoted strings = string; numbers = number
+      docker      FROM/WORKDIR/COPY/RUN/CMD/ENV/EXPOSE/... = keyword;
+                  strings and numbers as usual
+    - Multi-line strings (python triple-quoted """...""" / '''...''' docstrings):
+      a triple-quote always opens a STRING token that continues until the
+      matching closing triple-quote. The ENTIRE span must be #98c379 (green) -
+      every interior line, not only the opening line. Colouring only the first
+      line and leaving the rest as default text is a rendering bug; the closing
+      quotes must be green too. A same-line """short doc""" pair is one green
+      run. Multi-line strings are not affected by the '#'-to-end comment rule.
+    - Blocks with no declared language (plain output/text) are NOT tokenized -
+      emit the escaped text with NO <b>/<i> tags; the line divs keep the
+      layout and only the window shell classifies them.
+    - Other code-like passages referenced in prose stay inline <code>...</code>,
+      styled by the shared CSS - do NOT window-wrap those.
+
+b) SHARED STYLE BLOCK
+   - Copy the whole <style>...</style> block from the reference verbatim.
+   - Do not add your own CSS unless the content absolutely requires it, and
+     never remove/rename the .diagram class.
+
+c) REUSABLE HEADER (copy, no subtitle line)
+   The header block (the logo-bar <p> in the skeleton) is exactly:
+   <p style="margin:0 0 24px 0;padding-bottom:10px;border-bottom:2px solid
+      #f2a900;font-family:...">
+     <img src="data:image/png;base64,<FULL LOGO DATA>" alt="Cogknowedge Solutions
+          logo" width="40" height="43" style="width:40px;height:auto;
+          vertical-align:middle;margin-right:12px;">
+     <span style="font-size:16px;font-weight:700;color:#1a1a1a;vertical-align:middle;">
+          Cogknowedge Solutions</span>
+   </p>
+   RULE: copy the entire header block from the reference DO NOT retype or
+   regenerate the logo base64. There is NO subtitle <span> under the company
+   name and no trailing <br> - do not add either. The document title appears
+   only in <title> and the <h1> (mirror each other).
+
+d) REUSABLE FOOTER (copy, do not change)
+   <p style="margin:32px 0 0 0;padding-top:14px;border-top:1px solid #e2e5ea;
+     text-align:center;font-family:...">
+     <span style="font-size:11px;color:#8a8f98;">
+       c 2026 Cogknowedge Solutions. All rights reserved.</span>
+   </p>
+
+e) HEADINGS
+   - ONE h1 per document = the document title (mirrors <title>).
+   - Map markdown section headings to h2, sub-headings to h3. Never skip levels.
+
+--------------------------------------------------------------------------------
+3. KEY FAILURE POINTS (these actually broke a previous document)
+--------------------------------------------------------------------------------
+F1: TRUNCATED LOGO BASE64 - THE MOST IMPORTANT CHECK.
+    The logo is embedded as a data URI. In a past document the base64 was cut
+    off at ~2,000 characters, making it invalid. The browser cannot decode it,
+    so the logo silently fails to render (broken/blank image).
+    - The complete Cogknowedge logo PNG is 53,168 bytes = 70,892 base64 chars.
+    - You MUST paste the full logo <img> tag (including its entire base64)
+      from the reference file verbatim.
+    - NEVER regenerate, re-encode, compress or shorten it.
+    - Sanity check: the base64 char count (mod 4 == 0) and the decoded PNG
+      begins with bytes 89 50 4E 47.
+
+F2: TABLE-BASED DIAGRAM / FLOWCHART.
+    In the same broken document the flowchart was hand-rebuilt as an HTML
+    <table> of colored cells. Word/PDF/markdown exporters strip <table>/<div>,
+    so the flowchart disappeared or broke.
+    - Diagrams/flowcharts must survive editors that strip <table>. The only
+      block-safe, export-safe structures in this series are paragraphs
+      (<p>/<span>), diagrams as a base64 <img> inside <div class="diagram">,
+      and the inline-styled <div> code windows (see 2 a2 and F7 - the
+      div-based code windows are the accepted exception). A flowchart rebuilt
+      as a <table> of coloured cells does NOT survive: NEVER build a diagram
+      from a <table>.
+    - Any diagram/flowchart in the source .md MUST be rendered as an image and
+      embedded like the skeleton's diagram block:
+        <div class="diagram"><img alt="diagram N"
+          src="data:image/png;base64,<FULL DIAGRAM DATA>"
+          style="max-width:100%;height:auto;display:block;margin:0 auto;
+                 border:1px solid #e2e5ea;border-radius:8px;padding:12px;
+                 background:#ffffff;"/></div>
+    - "diagram N" numbering: 0, 1, 2, ... in order.
+    - If the .md gives the diagram as ASCII art or a textual flow, render it
+      into a real image (diagram tool/script/screenshot) first, then embed it.
+
+F3: WRONG DIAGRAM CONTENT (DIFFERENT MERMAID RENDERED FROM THE SOURCE).
+    This is the newest failure and the one to watch out for most. The generated
+    document's flowchart was a completely different diagram - nodes, text,
+    flow and colors belonged to an unrelated figure, NOT the mermaid block in
+    the .md being converted.
+    - ALWAYS render each diagram FRESH from the mermaid/ascii source that
+      appears in the .md you are converting. NEVER copy or reuse a diagram
+      image from another document, an earlier version, or a template.
+    - The rendered image must reproduce the EXACT nodes, edges, edge labels,
+      and per-node fill colors declared in the mermaid source.
+    - Sanity check before embedding: list every node label and every edge
+      label from the mermaid source (e.g. A..G, "Invalid"/"Valid" arrows,
+      styles), open the rendered PNG, and confirm each one is present and the
+      branch flow matches (<A> -> validation -> invalid/valid -> ...). If the
+      mermaid has style fills (#e1f5ff etc.), verify the colors match too.
+    - If the .md has several diagrams, render each one independently from its
+      own source block; do not reuse the same image for multiple "diagram N"
+      slots.
+    - RENDER PIPELINE (proven in the series): extract each ```mermaid block
+      from the .md and render to PNG via Docker, so npm/network variation on
+      the host cannot skew output:
+          docker run --rm
+            -v "<local-dir>\<name>.mmd:/data/<name>.mmd"
+            -v "<local-dir>:/out"
+            minlag/mermaid-cli -i /data/<name>.mmd -o /out/<name>.png -b white -f
+      Supported syntax proven in the series: "graph TD" and "flowchart TD"
+      headers, subgraphs, "-->" and "-.->" edges, edge labels |"..."|,
+      style X fill:#hex, and <br/> inside node labels. Verify the rendered PNG
+      decodes to magic bytes 89 50 4E 47 before embedding.
+    - "diagram N" numbering: 0, 1, 2, ... in order, per mermaid block.
+
+F4: HEADING / CROSS-REFERENCE DRIFT FROM THE .md.
+    In the same document the per-cell headings were renamed and renumbered:
+    "Cell 1: Dependency Installation" became "Step 1 - Install the required
+    modules", "Case 1 - ..." was rewritten "Case 1: ...", and the internal
+    cross-reference "defined in Cell 5" became "defined in Step 5".
+    - h3 text must be the .md's ### heading VERBATIM (trimmed), including the
+      label word ("Cell 1:"), numbering, and hyphen/colon punctuation.
+    - Renumber/rename cross-references together: if the .md says "defined in
+      Cell 5", the HTML must say "Cell 5" - never silently reword them.
+    - No editorial text: do not insert intro/summary sentences that are not in
+      the .md ("The notebook mirrors these steps; the code below is what each
+      cell runs." was found as a stray addition and had to be removed). Body
+      content comes only from the .md.
+
+F5: FENCE-UNAWARE HEADING DETECTION TRUNCATES/MERGES SECTIONS.
+    A '#' character inside a fenced code block is a code comment, not an h1.
+    The same applies to '---' separators that appear inside code output.
+    In a past document a "# Create a fresh virtual environment" comment inside
+    a bash block was misread as an h1, silently splitting the surrounding
+    section into two unrelated halves. Fix:
+    - Track an in-fence boolean. Toggle it on lines that open a ``` fence;
+      while inside, append every line verbatim to the current code block and
+      skip all heading/divider logic. Close the fence on the next ``` line.
+    - After conversion, spot-check: no code-line starting with '#' appears as
+      an <h1>, and no code-emitted '---' appears as an <hr/>.
+
+F6: ORPHAN SECTION CONTENT DISCARDED BETWEEN "---" DIVIDERS.
+    A parser that flushes a section on every "---" divider will also discard
+    any prose/diagram sitting between two dividers with no heading of its own.
+    Lab 9 had a mermaid timeline block plus paragraphs "outside" any heading;
+    a buggy splitter dropped them silently (no error, just missing content).
+    Fix:
+    - Treat content with no current heading as a real block: preserve and emit
+      it inline at its position; never silently drop it.
+    - After generation, spot-check: every ```mermaid block in the .md appears
+      once as <div class="diagram"> in the HTML.
+
+F7: LMS RICH-TEXT EDITOR BLOCK-FIES EVERY <span> TOKEN.
+    When a lab HTML file is pasted into the LMS rich-text editor, the editor
+    converts EACH <span> element into its own block/line. Code written with
+    per-token <span style="color:..."> highlighting therefore pastes with every
+    single token on its own line - "def" on one line, the function name on the
+    next - and indentation collapses, so the code looks broken/vertical. This
+    is a structural problem, not a CSS one; no white-space/overflow-wrap values
+    fix it (pre/Code/break-word variants were tested and all failed).
+    - NEVER wrap code tokens in <span>. Use the <b>/<i> inline tags instead
+      (see section 2 a2): the LMS editor keeps <b>/<i> inline, so each code
+      line stays on one line.
+    - Restructure code windows as ONE <div> per code line (not one big stream
+      of tokens inside a single body div). Because each line div is its own
+      block, it becomes its own line in the editor even if everything else
+      around it changes.
+    - Encode indentation/alignment as '&nbsp;' so it cannot be collapsed away.
+    - Final pattern "LMS" test 2 in the series (per-line div + <b>/<i> +
+      '&nbsp;') pasted cleanly with full highlighting intact; the earlier span
+      variants did not. Copy the reference implementation verbatim and do not
+      regress to spans.
+
+--------------------------------------------------------------------------------
+4. MARKDOWN -> HTML CONVERSION RULES (for the body content)
+--------------------------------------------------------------------------------
+    # .............. <h1>  (Reserved for the single document title only -
+                            never emitted as a section heading)
+    ## ............. <h2>  (numbered sections renumbered per the heading
+                            variants below; unnumbered ones stay verbatim)
+    ### ............ <h3>  (verbatim, e.g. "Cell 1: ...")
+    #### ........... <h4>  (verbatim; may appear under a ### section, e.g.
+                            "#### Demo N" under "### Cell 7". Keep the h4
+                            nesting as-is; do NOT promote them to h3)
+    paragraphs ............... <p>
+    *italic* / **bold** ...... <em> / <strong>
+    `code` .................. <code>
+    ```fenced blocks ........ terminal-window div per section 2 (a2); do NOT use <pre>
+    - / * bullet lists ....... <ul><li>
+    1. numbered lists ........ <ol><li>
+    > blockquote ............. <blockquote>
+    --- / *** divider ........ <hr/>
+    [link](url) .............. <a href="url">  (external links allowed as text)
+    md tables ................ <table> (only where unavoidable; use regular html)
+    images ................... inline base64 data URIs only, per section 3
+- HEADING VARIANTS ACROSS THE SERIES (all must be handled, not hardcoded):
+  - Difficulty line: DO NOT EMIT IT. If the .md carries a line directly under
+    the title starting with "Difficulty:" (optionally bold-wrapped as
+    "**Difficulty: ...**"), drop the whole line - it must not appear in the
+    HTML.
+  - Title line: emit the .md's title VERBATIM - dash style included (most
+    labs use "Lab N - Topic" with the plain hyphen, as the reference's title
+    does; some templates use an em dash "—") - as BOTH <title> and <h1>, so
+    the two copies read the same string, as in the reference. Never trim or
+    renumber a leading "N." from the title text and never reformat the dash to
+    match a different lab. There is no header subtitle to fill.
+  - Ungarbled/unlabelled trailing sections: "## Answer Key" (Lab 9's
+    assignment key) may carry no leading number. It IS a real <h2> and must be
+    preserved in place, but since it never had a number in the .md it keeps
+    none in the HTML - never invent "13. Answer Key". Renumber only the
+    numbered sections from the .md (those starting with "N."); leave any
+    unnumbered ## / ### headings verbatim and in place.
+  - The h2 renumbering must therefore count only the numbered .md sections;
+    unnumbered trailers (Answer Key) are emitted as-is.
+- Code blocks: render each one as a terminal-window div (section 2 a2) with
+  the language label and per-token <b>/<i> tags, ONE <div> per code line.
+  Encode indentation and multi-space alignment as '&nbsp;'; leave single
+  interior spaces as normal spaces so long lines can wrap. Escape the code
+  content with html.escape() BEFORE adding token tags so "<", ">", "&" show
+  correctly inside the dark body. NEVER tokenize with <span> (see F7).
+- Notebook companion (.ipynb): when the lab folder ships a .ipynb of the same
+  topic, copy the CODE WINDOWS (python cells) verbatim from the notebook's
+  code cells - string for string, including the leading '!' of !pip install
+  magics. The same lab's .md python fences are often abbreviated "preview"
+  excerpts and must NOT override the notebook. The .md stays authoritative
+  only for bash/setup windows, plain output/text windows, and the .env
+  placeholder. If a code window has no notebook counterpart (a demo excerpt
+  unique to the .md), use the .md fence as-is.
+- Punctuation/dash style: keep the source .md's own punctuation rather than
+  normalising to the reference's (the reference title uses " - " with spaces;
+  other labs may use "—"). Titles are covered by the Title-line bullet above;
+  prose keeps whatever the .md uses. No header subtitle exists to write.
+
+--------------------------------------------------------------------------------
+5. VERIFY BEFORE DELIVERING (run through ALL of these)
+--------------------------------------------------------------------------------
+1. Logo <img> line: identical structure to the reference and its base64 decodes
+   to a valid 53,168-byte PNG (magic bytes 89 50 4E 47). Best: byte-identical.
+2. Every other data:image base64 in the file decodes without error; each image
+   starts with its correct magic bytes (89 50 4E 47 for PNG).
+3. No leftover markdown syntax: no ```, no **text**, no # headings, no [text](url)
+   that were not converted.
+4. No external file references: no .png, .css, .js paths, no CDN/hosted URLs,
+   and no <script>/<link> tags anywhere - highlighting is pure inline HTML
+   (see (a2)).
+5. Code windows render: every code sample shows as a terminal window with the
+   title bar and its label, a dark body, and coloured tokens (keywords,
+   strings, numbers, functions on the One-Dark palette). Code windows follow
+   the section 2 a2 structure: ONE line div per code line, indentation as
+   '&nbsp;', tokens as <b>/<i> - and NO <span style="color:..."> token tags
+   anywhere in the code body. Count the window shells == count of code
+   samples; each tokenized language has at least one <b>/<i> token, and
+   plain-text labels read output/text/requirements/promql where expected.
+6. Special characters render correctly (this proves UTF-8): em dash " - ",
+   copyright line ("c 2026 ..." in the footer), arrows "->" / down-arrows,
+   curly quotes.
+7. <title> and <h1> agree exactly; the header has NO subtitle line and NO
+   Difficulty: <p> under the <h1>.
+8. Exactly one h1; section hierarchy is h2/h3 with no skipped levels.
+9. File opens and renders in a browser: logo visible, all diagrams visible,
+   code blocks readable.
+10. Diagram CONTENT check: for each mermaid block in the .md, confirm the
+    embedded diagram shows the same nodes, labels, arrows (including the
+    Invalid/Valid branches) and colors as the source - not just "some diagram".
+11. Heading check: every <h3> matches the .md's ### heading verbatim (label
+    words, numbers, punctuation). The <h2> main sections match the .md's ##
+    headings. Any internal references (e.g. "defined in Cell 5") mirror the .md exactly.
+12. Optional but recommended: diff your header/footer blocks against the
+    reference - the header should be identical (logo + company name only).
+13. Text-equality checks (e.g. verifying every .md sentence appears in the
+    HTML): strip HTML tags FIRST, then run html.unescape. Doing them in the
+    other order lets escaped "<" (from &lt;) be swallowed as a fake tag - e.g.
+    "Authorization: Bearer &lt;token&gt;" unescapes to "Bearer <token>" which
+    a tag-stripper then silently removes, causing false "line missing"
+    failures. Note: the same code-snippet lines legitimately appear both
+    escaped inside code-window token tags and as text inside <p> prose
+    elsewhere.
+14. Image count: content.count("data:image/png;base64,") equals the number of
+    images in the document (logo + one per diagram). Do NOT count with a regex
+    requiring src= directly after <img, because the diagram <img> declares
+    alt= BEFORE src= (a bare <img src="..." findall returns the logo but
+    under-counts the diagrams).
+15. Multi-line docstrings fully green: every line of each """...""" span
+    carries a #98c379 string token (interior lines included), not just the
+    opening line.
+16. Indentation preserved as '&nbsp;' outside tags: each code line's leading
+    whitespace is '&nbsp;' per source char (tabs = 4) and sits before any
+    <b>/<i> token - no token tag starts with spaces, no indentation trimmed.
+17. Notebook fidelity: every code cell of the companion .ipynb appears verbatim
+    (whitespace-stripped text comparison) inside the python windows.
+
+--------------------------------------------------------------------------------
+6. DELIVERABLE
+--------------------------------------------------------------------------------
+- One single .html file per request.
+- Name it per the user's instruction in the prompt (e.g. "lab-<number>-<topic>.html").
+- Save it in the same folder as the reference file.
+- UTF-8 encoding, LF or CRLF line endings are both acceptable.
+================================================================================

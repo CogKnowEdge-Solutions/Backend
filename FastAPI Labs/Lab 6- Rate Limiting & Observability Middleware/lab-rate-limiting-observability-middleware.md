@@ -141,7 +141,7 @@ There is no login or token-issuing step: a request arrives carrying its `X-Tenan
 
 ## 8. Prerequisites
 
-- **Lab 4** — Familiarity with Depends() is assumed.
+- **Lab 3** — Familiarity with Depends() is assumed.
 
 - An OpenRouter API key (set in the `.env` file as `OPEN_ROUTER_KEY`)
 

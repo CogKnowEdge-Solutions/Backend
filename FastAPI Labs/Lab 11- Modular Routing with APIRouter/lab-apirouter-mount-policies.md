@@ -133,7 +133,7 @@ Proof 3 checks `public_handler is internal_handler` — a Python identity test (
 ## 8. Prerequisites
 
 - A free OpenRouter API key, set in a `.env` file as `OPEN_ROUTER_KEY`. Get one at https://openrouter.ai/keys.
-- Lab 4 (Dependency Injection) — familiarity with `Depends()` and how FastAPI resolves dependencies.
+- Lab 3 (Dependency Injection) — familiarity with `Depends()` and how FastAPI resolves dependencies.
 
 ---
 

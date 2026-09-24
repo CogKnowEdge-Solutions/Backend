@@ -128,8 +128,9 @@ Notice GET /tasks/{job_id} can be called at any point on the right-hand timeline
 
 ## 8. Prerequisites
 
-- **Lab 2 (Async/Await)** — Familiarity with async functions and `await` is assumed
+- **Lab 4 (Async/Await)** — Familiarity with async functions and `await` is assumed
 - An OpenRouter API key (set in the `.env` file as `OPEN_ROUTER_KEY`)
+- **IDE with Python support** — This lab uses uvicorn to serve the FastAPI app. The ipynb may not run in a cloud hosted IDE like Colab. Use a local IDE like jupyter notebook, VS code, Antigravity etc.
 
 **Compute & cost:** Runs entirely on a laptop CPU — no GPU needed. It calls OpenRouter's `openrouter/free` model, which is free. One full run-through issues roughly 8 LLM calls (3 in Demo 1, 3 in Demo 2, 4 in Demo 3, 1 in Demo 4), so even a paid tier would cost a negligible amount.
 
