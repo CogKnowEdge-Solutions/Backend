@@ -267,6 +267,7 @@ Here's the recommendation lab by lab. `.ipynb` is the more convenient default ac
 
 | Lab | Recommended Format | Why |
 |---|---|---|
+| 0 — HTTP Basics | Either | |
 | 1 — Pydantic Validation | Either | Straightforward request/response validation either way |
 | 2 — Exception Handling | Either | |
 | 3 — Dependency Injection | Either | |

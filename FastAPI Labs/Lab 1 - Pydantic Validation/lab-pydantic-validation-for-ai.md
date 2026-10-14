@@ -61,13 +61,6 @@ Key features of Pydantic include:
 *   **Data Contracts**: In AI applications, Pydantic acts as a "contract" between different layers. We define the exact shape of data we expect using schemas.
 *   **Informative Errors**: When validation fails, Pydantic returns a structured list of failures (indicating what field failed, where it is located, and why), which can be converted directly to JSON for client responses.
 
-### What is FastAPI?
-FastAPI is a modern, high-performance web framework for building APIs with Python. It is designed to be developer-friendly, fast to write, and extremely performant because it runs asynchronously under the hood.
-
-Why FastAPI is ideal for AI services:
-*   **Native Pydantic Integration**: FastAPI is built directly on top of Pydantic. When you declare a request body schema in a route handler, FastAPI automatically parses the incoming JSON request, runs it through Pydantic's validator, and hands your function a fully instantiated Pydantic object. If the JSON is invalid, FastAPI halts execution immediately and returns a standardized `422 Unprocessable Entity` HTTP status code to the client—without you writing a single line of error-handling code.
-*   **Automatic OpenAPI/Swagger Generation**: Because FastAPI inspects your Pydantic schemas, it automatically generates interactive API documentation (interactive UI at `/docs` or `/redoc`) describing the exact request and response shapes, validation rules, and error responses.
-
 ### Input vs. Output Validation Boundaries
 In classical web development, validation is primarily applied to incoming user requests. However, in AI systems, we must treat LLMs as untrusted third-party data providers. We cannot assume their raw output will always map perfectly to our business schemas. Enforcing outbound validation prevents front-ends and databases from breaking.
 

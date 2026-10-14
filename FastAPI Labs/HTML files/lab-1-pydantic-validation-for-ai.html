@@ -204,24 +204,6 @@
             (indicating what field failed, where it is located, and why), which can be converted directly to JSON for
             client responses.</li>
     </ul>
-    <h3>What is FastAPI?</h3>
-    <p>FastAPI is a modern, high-performance web framework for building APIs with Python. It is designed to be
-        developer-friendly, fast to write, and extremely performant because it runs asynchronously under the hood.</p>
-    <p>Why FastAPI is ideal for AI services:</p>
-    <ul>
-        <li><strong>Native Pydantic Integration</strong>: FastAPI is built directly on top of Pydantic. When you declare
-            a request body schema in a route handler, FastAPI automatically parses the incoming JSON request, runs it
-            through Pydantic's validator, and hands your function a fully instantiated Pydantic object. If the JSON is
-            invalid, FastAPI halts execution immediately and returns a standardized
-            <code>422 Unprocessable Entity</code> HTTP status code to the client—without you writing a single line of
-            error-handling code.
-        </li>
-        <li><strong>Automatic OpenAPI/Swagger Generation</strong>: Because FastAPI inspects your Pydantic schemas, it
-            automatically generates interactive API documentation (interactive UI at <code>/docs</code> or
-            <code>/redoc</code>) describing the exact request and response shapes, validation rules, and error
-            responses.
-        </li>
-    </ul>
     <h3>Input vs. Output Validation Boundaries</h3>
     <p>In classical web development, validation is primarily applied to incoming user requests. However, in AI systems,
         we must treat LLMs as untrusted third-party data providers. We cannot assume their raw output will always map
